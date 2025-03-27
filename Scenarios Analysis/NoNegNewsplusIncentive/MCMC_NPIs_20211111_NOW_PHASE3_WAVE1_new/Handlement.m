@@ -1,0 +1,681 @@
+% % Calculate the Gelman-Rubin diagnostic
+% R = gelman_rubin(chain);
+% 
+% % Display the results
+% disp(R);
+% 
+% 
+% function R = gelman_rubin(chain)
+% Compute the Gelman-Rubin diagnostic for a MCMC chain
+rng(1)
+
+n_chains = size(res, 2);
+n_samples = size(res{1,1}{1,2}, 1);
+n_params = size(res{1,1}{1,2}, 2);
+
+% Calculate the between-chain variance
+mean_chain = [mean(res{1,1}{1,2});
+    mean(res{1,2}{1,2})
+    mean(res{1,3}{1,2})]; % mean of each parameter over all chains
+mean_all = mean(mean_chain, 1); % mean of all parameters over all chains
+B = n_samples / (n_chains - 1) * sum((mean_chain - mean_all).^2, 1);
+
+% Calculate the within-chain variance
+var_chain = [var(res{1,1}{1,2});
+    var(res{1,2}{1,2})
+    var(res{1,3}{1,2})];
+W = 1/n_chains * sum(var_chain, 1);
+
+% Calculate the estimated variance of the posterior distribution
+var_hat = (n_samples - 1) / n_samples * W + 1 / n_samples * B;
+
+% Calculate the potential scale reduction factor (PSRF)
+R = sqrt(var_hat ./ W)
+
+% MCMC_Generate_Figures(DATE, PHASE, PARAMETER_SET, LIKELIHOOD_TYPE, N_VARS, 1);
+
+PLOT_CHAIN_NUM = 1;
+% t2 = figure(1); clf;
+% mcmcplot(res{PLOT_CHAIN_NUM}{2},[],res{PLOT_CHAIN_NUM}{1},'chainpanel');
+% set(gcf,'Position',[50 50 900 700])
+
+temp_res = res;
+Chains = cellfun(@(x) x{2}, temp_res, 'un', 0);
+Ress = cellfun(@(x) x{1}, temp_res, 'un', 0);
+
+% t5 = plot_MCMC_results_fig2(100, Chains, ["I"], pars_in, Ress, PHASE_IN);
+% NSamples, Chains, Comps, Pars, Ress, PHASE
+
+
+
+NSamples = 500;
+Comps = ["I","V1","VB"];
+% Comps = ["I"];
+% Comps = ["V1"]
+% Comps = ["VB"]
+Pars = pars_in;
+
+if PHASE == "PHASE_ONE"
+    phase_name = 'Phase 1';
+elseif PHASE == "PHASE_TWO"
+    phase_name = 'Phase 2';
+elseif PHASE == "PHASE_THREE"
+    phase_name = 'Phase 3';
+end
+
+% For all Chains
+out = figure('Name', 'Res', 'Position', [50 50 900 700]); clf    
+k = 2;
+Chain = Chains{k};
+Res = Ress{k};
+
+% mean([Ress{1}.mean;Ress{2}.mean;Ress{3}.mean])
+
+% Take full chain
+burnIn = floor(length(Chain)/2);% floor(length(Chain)/2); % Was originally sample half.
+burnOut = burnIn:length(Chain);
+chain_out = Chain(burnOut,:);
+% res_out = Res(burnOut,:);
+
+i_samp = randi([1, length(burnOut)], 1,NSamples);
+chain_samp = chain_out(i_samp,:);
+
+chainst = chainstats(chain_out,Res);
+
+
+% Change plot position
+x0 = 50;
+y0 = 50;
+width = 900;
+height = 700;
+
+
+
+
+
+
+
+%% 75%
+
+[t_75, Y_75, pars_out_75] = SEIRD_model_ThetaSweep_all(median(chain_out)', pars_phase_3.times, pars_phase_3,75);
+diffIsym_75 =  Calc_dI_dt_all(Y_75, Pars,75);
+diffD_75=  Calc_dD_dt_all(Y_75, Pars,75);
+diffV_75 = Calc_dV1_dt_all(Y_75,Pars,75);
+diffB_75 = Calc_dB_dt_all(Y_75,Pars,75);
+
+figure(2)
+
+for j = 1:length(Comps)
+    j_comp = Comps(j);
+    
+    % Subplot based on the # of components
+    subplot(length(Comps), 1, j)
+    sgtitle(phase_name, 'FontWeight', 'bold', 'FontSize', 30);
+    set(gca,'linewidth',1, 'fontsize', 18);
+    set(gcf, 'position', [x0,y0,width,height])
+    hold on
+
+    % Plot the mean chain
+
+    mean_fit = SEIRD_model_Theta(Res.mean, Pars.times, Pars, j_comp, true).';
+    % Sample the rest
+    for i = 1:NSamples
+        i_th = chain_samp(i,:);
+        sampled_fits(i,:) = SEIRD_model_Theta_all(i_th, Pars.times, Pars, j_comp, true,75);
+    end
+    
+    % x values
+    ts = 1:size(sampled_fits,2); % I can only do this b/c I set days as the unit
+    ts = ts+Pars.t0;
+    
+    % y values
+    mean_sampled_fits = mean(sampled_fits);
+    std_sampled_fits = std(sampled_fits);
+    
+    ci_higher_sampled_fits = mean_sampled_fits + 1.96*std_sampled_fits;
+    ci_lower_sampled_fits = mean_sampled_fits - 1.96*std_sampled_fits;
+    ci_lower_sampled_fits = max(ci_lower_sampled_fits,0);
+    
+    % plots
+    fill([ts, fliplr(ts)], ...
+        [ci_higher_sampled_fits, fliplr(ci_lower_sampled_fits)], ...
+        [0.7, 0.7, 0.7],'LineStyle','none','HandleVisibility','off','FaceAlpha',0.3)
+    
+    plot(ts, ci_higher_sampled_fits, '-.', 'LineWidth', 1, 'Color', [1, 0, 1], ...
+        'HandleVisibility','off');
+    plot(ts, ci_lower_sampled_fits, '-.', 'LineWidth', 1, 'Color', [1, 0, 1], ...
+        'HandleVisibility','off');
+    plot(ts, mean_sampled_fits, 'LineWidth', 2, 'Color', [0 0 0], ...
+        'HandleVisibility','off');
+    
+    % For certain components, add additional information to the plot.
+    ylabel_xpos = -30;
+
+    if j_comp == "S"            % If we're plotting S, include sero
+        plot(Pars.tSero+Pars.t0, (1-Pars.sero/100)*Pars.N, 's', 'Color', [1 0 0], ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'S')
+        ylabel('Cumulative susceptible','fontweight','bold')
+        
+    elseif j_comp == "E"        % Exposed
+        ylabel('Exposed individuals','fontweight','bold')
+        
+    elseif j_comp == "Isym"    % Infected
+        plot(ts, Pars.infect_target, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Reported cases(local)'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+    elseif j_comp == "A"    % Infected
+        plot(ts, Pars.asym_local_target, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Serology data'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]); 
+    elseif j_comp == "I"    % Infected
+        plot(ts, Pars.local_target_mov, 's', 'Color', '#d63031', 'MarkerSize', 10, ...
+         'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffIsym_75, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')
+        infect_75_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.local_target_mov];
+    elseif j_comp == "R"        % If we're plotting R, include sero
+        plot(Pars.tSero+Pars.t0, Pars.sero/100*Pars.N, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Serology data'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Recovered','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        
+    elseif j_comp == "D"        % If deaths, include data
+        plot(ts, Pars.deceased_target, 's', 'Color', [0.2, 0.3, 0.6], 'MarkerSize', 15, ...
+            'MarkerFaceColor', [0.3, 0.5, 0.9], 'DisplayName', 'Death data')
+        legend({'Death data'},'Location','southeast',  'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Deaths','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+
+
+    elseif j_comp == "V1"    % Infected
+        % plot(ts, Pars.vac_count_P, 's', 'Color', '#8e44ad', 'MarkerSize', 10, ...
+        %  'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffV_75, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')
+        V1_75_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.vac_count_P];
+
+    elseif j_comp == "VB"    % Infected
+        plot(ts, Pars.vac_count_B, 's', 'Color', '#d63031', 'MarkerSize', 10, ...
+         'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffB_75, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')       
+        VB_75_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.vac_count_B];
+
+    end
+    ylim([0, Inf])
+    xlim([Pars.t0, Pars.tf])
+    
+    
+    box on
+end
+
+%% 50%
+
+[t_50, Y_50, pars_out_50] = SEIRD_model_ThetaSweep_all(median(chain_out)', pars_phase_3.times, pars_phase_3,50);
+diffIsym_50 =  Calc_dI_dt_all(Y_50, Pars,50);
+diffD_50=  Calc_dD_dt_all(Y_50, Pars,50);
+diffV_50 = Calc_dV1_dt_all(Y_50,Pars,50);
+diffB_50 = Calc_dB_dt_all(Y_50,Pars,50);
+
+figure(3)
+
+for j = 1:length(Comps)
+    j_comp = Comps(j);
+    
+    % Subplot based on the # of components
+    subplot(length(Comps), 1, j)
+    sgtitle(phase_name, 'FontWeight', 'bold', 'FontSize', 30);
+    set(gca,'linewidth',1, 'fontsize', 18);
+    set(gcf, 'position', [x0,y0,width,height])
+    hold on
+
+    % Plot the mean chain
+
+    mean_fit = SEIRD_model_Theta(Res.mean, Pars.times, Pars, j_comp, true).';
+    % Sample the rest
+    for i = 1:NSamples
+        i_th = chain_samp(i,:);
+        sampled_fits(i,:) = SEIRD_model_Theta_all(i_th, Pars.times, Pars, j_comp, true,50);
+    end
+    
+    % x values
+    ts = 1:size(sampled_fits,2); % I can only do this b/c I set days as the unit
+    ts = ts+Pars.t0;
+    
+    % y values
+    mean_sampled_fits = mean(sampled_fits);
+    std_sampled_fits = std(sampled_fits);
+    
+    ci_higher_sampled_fits = mean_sampled_fits + 1.96*std_sampled_fits;
+    ci_lower_sampled_fits = mean_sampled_fits - 1.96*std_sampled_fits;
+    ci_lower_sampled_fits = max(ci_lower_sampled_fits,0);
+    
+    % plots
+    fill([ts, fliplr(ts)], ...
+        [ci_higher_sampled_fits, fliplr(ci_lower_sampled_fits)], ...
+        [0.7, 0.7, 0.7],'LineStyle','none','HandleVisibility','off','FaceAlpha',0.3)
+    
+    plot(ts, ci_higher_sampled_fits, '-.', 'LineWidth', 1, 'Color', [1, 0, 1], ...
+        'HandleVisibility','off');
+    plot(ts, ci_lower_sampled_fits, '-.', 'LineWidth', 1, 'Color', [1, 0, 1], ...
+        'HandleVisibility','off');
+    plot(ts, mean_sampled_fits, 'LineWidth', 2, 'Color', [0 0 0], ...
+        'HandleVisibility','off');
+    
+    % For certain components, add additional information to the plot.
+    ylabel_xpos = -30;
+
+    if j_comp == "S"            % If we're plotting S, include sero
+        plot(Pars.tSero+Pars.t0, (1-Pars.sero/100)*Pars.N, 's', 'Color', [1 0 0], ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'S')
+        ylabel('Cumulative susceptible','fontweight','bold')
+        
+    elseif j_comp == "E"        % Exposed
+        ylabel('Exposed individuals','fontweight','bold')
+        
+    elseif j_comp == "Isym"    % Infected
+        plot(ts, Pars.infect_target, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Reported cases(local)'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+    elseif j_comp == "A"    % Infected
+        plot(ts, Pars.asym_local_target, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Serology data'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]); 
+    elseif j_comp == "I"    % Infected
+        plot(ts, Pars.local_target_mov, 's', 'Color', '#d63031', 'MarkerSize', 10, ...
+         'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffIsym_50, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')
+        infect_50_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.local_target_mov];
+    elseif j_comp == "R"        % If we're plotting R, include sero
+        plot(Pars.tSero+Pars.t0, Pars.sero/100*Pars.N, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Serology data'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Recovered','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        
+    elseif j_comp == "D"        % If deaths, include data
+        plot(ts, Pars.deceased_target, 's', 'Color', [0.2, 0.3, 0.6], 'MarkerSize', 15, ...
+            'MarkerFaceColor', [0.3, 0.5, 0.9], 'DisplayName', 'Death data')
+        legend({'Death data'},'Location','southeast',  'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Deaths','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+
+
+    elseif j_comp == "V1"    % Infected
+        % plot(ts, Pars.vac_count_P, 's', 'Color', '#8e44ad', 'MarkerSize', 10, ...
+        %  'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffV_50, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')
+        V1_50_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.vac_count_P];
+
+    elseif j_comp == "VB"    % Infected
+        plot(ts, Pars.vac_count_B, 's', 'Color', '#d63031', 'MarkerSize', 10, ...
+         'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffB_50, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')       
+        VB_50_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.vac_count_B];
+
+    end
+    ylim([0, Inf])
+    xlim([Pars.t0, Pars.tf])
+    
+    
+    box on
+end
+
+%% 25%
+
+[t_25, Y_25, pars_out_25] = SEIRD_model_ThetaSweep_all(median(chain_out)', pars_phase_3.times, pars_phase_3,25);
+diffIsym_25 =  Calc_dI_dt_all(Y_25, Pars,25);
+diffD_25=  Calc_dD_dt_all(Y_25, Pars,25);
+diffV_25 = Calc_dV1_dt_all(Y_25,Pars,25);
+diffB_25 = Calc_dB_dt_all(Y_25,Pars,25);
+
+figure(4)
+
+for j = 1:length(Comps)
+    j_comp = Comps(j);
+    
+    % Subplot based on the # of components
+    subplot(length(Comps), 1, j)
+    sgtitle(phase_name, 'FontWeight', 'bold', 'FontSize', 30);
+    set(gca,'linewidth',1, 'fontsize', 18);
+    set(gcf, 'position', [x0,y0,width,height])
+    hold on
+
+    % Plot the mean chain
+
+    mean_fit = SEIRD_model_Theta(Res.mean, Pars.times, Pars, j_comp, true).';
+    % Sample the rest
+    for i = 1:NSamples
+        i_th = chain_samp(i,:);
+        sampled_fits(i,:) = SEIRD_model_Theta_all(i_th, Pars.times, Pars, j_comp, true,25);
+    end
+    
+    % x values
+    ts = 1:size(sampled_fits,2); % I can only do this b/c I set days as the unit
+    ts = ts+Pars.t0;
+    
+    % y values
+    mean_sampled_fits = mean(sampled_fits);
+    std_sampled_fits = std(sampled_fits);
+    
+    ci_higher_sampled_fits = mean_sampled_fits + 1.96*std_sampled_fits;
+    ci_lower_sampled_fits = mean_sampled_fits - 1.96*std_sampled_fits;
+    ci_lower_sampled_fits = max(ci_lower_sampled_fits,0);
+    
+    % plots
+    fill([ts, fliplr(ts)], ...
+        [ci_higher_sampled_fits, fliplr(ci_lower_sampled_fits)], ...
+        [0.7, 0.7, 0.7],'LineStyle','none','HandleVisibility','off','FaceAlpha',0.3)
+    
+    plot(ts, ci_higher_sampled_fits, '-.', 'LineWidth', 1, 'Color', [1, 0, 1], ...
+        'HandleVisibility','off');
+    plot(ts, ci_lower_sampled_fits, '-.', 'LineWidth', 1, 'Color', [1, 0, 1], ...
+        'HandleVisibility','off');
+    plot(ts, mean_sampled_fits, 'LineWidth', 2, 'Color', [0 0 0], ...
+        'HandleVisibility','off');
+    
+    % For certain components, add additional information to the plot.
+    ylabel_xpos = -30;
+
+    if j_comp == "S"            % If we're plotting S, include sero
+        plot(Pars.tSero+Pars.t0, (1-Pars.sero/100)*Pars.N, 's', 'Color', [1 0 0], ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'S')
+        ylabel('Cumulative susceptible','fontweight','bold')
+        
+    elseif j_comp == "E"        % Exposed
+        ylabel('Exposed individuals','fontweight','bold')
+        
+    elseif j_comp == "Isym"    % Infected
+        plot(ts, Pars.infect_target, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Reported cases(local)'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+    elseif j_comp == "A"    % Infected
+        plot(ts, Pars.asym_local_target, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Serology data'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]); 
+    elseif j_comp == "I"    % Infected
+        plot(ts, Pars.local_target_mov, 's', 'Color', '#d63031', 'MarkerSize', 10, ...
+         'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffIsym_25, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')
+        infect_25_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.local_target_mov];
+    elseif j_comp == "R"        % If we're plotting R, include sero
+        plot(Pars.tSero+Pars.t0, Pars.sero/100*Pars.N, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Serology data'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Recovered','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        
+    elseif j_comp == "D"        % If deaths, include data
+        plot(ts, Pars.deceased_target, 's', 'Color', [0.2, 0.3, 0.6], 'MarkerSize', 15, ...
+            'MarkerFaceColor', [0.3, 0.5, 0.9], 'DisplayName', 'Death data')
+        legend({'Death data'},'Location','southeast',  'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Deaths','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+
+
+    elseif j_comp == "V1"    % Infected
+        % plot(ts, Pars.vac_count_P, 's', 'Color', '#8e44ad', 'MarkerSize', 10, ...
+        %  'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffV_25, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')
+        V1_25_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.vac_count_P];
+
+    elseif j_comp == "VB"    % Infected
+        plot(ts, Pars.vac_count_B, 's', 'Color', '#d63031', 'MarkerSize', 10, ...
+         'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffB_25, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')       
+        VB_25_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.vac_count_B];
+
+    end
+    ylim([0, Inf])
+    xlim([Pars.t0, Pars.tf])
+    
+    
+    box on
+end
+
+%% 100%
+
+[t_100, Y_100, pars_out_100] = SEIRD_model_ThetaSweep_all(median(chain_out)', pars_phase_3.times, pars_phase_3,100);
+diffIsym_100 =  Calc_dI_dt_all(Y_100, Pars,100);
+diffD_100=  Calc_dD_dt_all(Y_100, Pars,100);
+diffV_100 = Calc_dV1_dt_all(Y_100,Pars,100);
+diffB_100 = Calc_dB_dt_all(Y_100,Pars,100);
+
+figure(5)
+
+for j = 1:length(Comps)
+    j_comp = Comps(j);
+    
+    % Subplot based on the # of components
+    subplot(length(Comps), 1, j)
+    sgtitle(phase_name, 'FontWeight', 'bold', 'FontSize', 30);
+    set(gca,'linewidth',1, 'fontsize', 18);
+    set(gcf, 'position', [x0,y0,width,height])
+    hold on
+
+    % Plot the mean chain
+
+    mean_fit = SEIRD_model_Theta(Res.mean, Pars.times, Pars, j_comp, true).';
+    % Sample the rest
+    for i = 1:NSamples
+        i_th = chain_samp(i,:);
+        sampled_fits(i,:) = SEIRD_model_Theta_all(i_th, Pars.times, Pars, j_comp, true,100);
+    end
+    
+    % x values
+    ts = 1:size(sampled_fits,2); % I can only do this b/c I set days as the unit
+    ts = ts+Pars.t0;
+    
+    % y values
+    mean_sampled_fits = mean(sampled_fits);
+    std_sampled_fits = std(sampled_fits);
+    
+    ci_higher_sampled_fits = mean_sampled_fits + 1.96*std_sampled_fits;
+    ci_lower_sampled_fits = mean_sampled_fits - 1.96*std_sampled_fits;
+    ci_lower_sampled_fits = max(ci_lower_sampled_fits,0);
+    
+    % plots
+    fill([ts, fliplr(ts)], ...
+        [ci_higher_sampled_fits, fliplr(ci_lower_sampled_fits)], ...
+        [0.7, 0.7, 0.7],'LineStyle','none','HandleVisibility','off','FaceAlpha',0.3)
+    
+    plot(ts, ci_higher_sampled_fits, '-.', 'LineWidth', 1, 'Color', [1, 0, 1], ...
+        'HandleVisibility','off');
+    plot(ts, ci_lower_sampled_fits, '-.', 'LineWidth', 1, 'Color', [1, 0, 1], ...
+        'HandleVisibility','off');
+    plot(ts, mean_sampled_fits, 'LineWidth', 2, 'Color', [0 0 0], ...
+        'HandleVisibility','off');
+    
+    % For certain components, add additional information to the plot.
+    ylabel_xpos = -30;
+
+    if j_comp == "S"            % If we're plotting S, include sero
+        plot(Pars.tSero+Pars.t0, (1-Pars.sero/100)*Pars.N, 's', 'Color', [1 0 0], ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'S')
+        ylabel('Cumulative susceptible','fontweight','bold')
+        
+    elseif j_comp == "E"        % Exposed
+        ylabel('Exposed individuals','fontweight','bold')
+        
+    elseif j_comp == "Isym"    % Infected
+        plot(ts, Pars.infect_target, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Reported cases(local)'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+    elseif j_comp == "A"    % Infected
+        plot(ts, Pars.asym_local_target, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Serology data'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]); 
+    elseif j_comp == "I"    % Infected
+        plot(ts, Pars.local_target_mov, 's', 'Color', '#d63031', 'MarkerSize', 10, ...
+         'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffIsym_100, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')
+        infect_100_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.local_target_mov];
+    elseif j_comp == "R"        % If we're plotting R, include sero
+        plot(Pars.tSero+Pars.t0, Pars.sero/100*Pars.N, 's', 'Color', [.6 0 0], 'MarkerSize', 15, ...
+            'MarkerFaceColor',[1 0 0], 'DisplayName', 'Serology data')
+        legend({'Serology data'},'Location','southeast', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Recovered','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        
+    elseif j_comp == "D"        % If deaths, include data
+        plot(ts, Pars.deceased_target, 's', 'Color', [0.2, 0.3, 0.6], 'MarkerSize', 15, ...
+            'MarkerFaceColor', [0.3, 0.5, 0.9], 'DisplayName', 'Death data')
+        legend({'Death data'},'Location','southeast',  'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Deaths','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+
+
+    elseif j_comp == "V1"    % Infected
+        % plot(ts, Pars.vac_count_P, 's', 'Color', '#8e44ad', 'MarkerSize', 10, ...
+        %  'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffV_100, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')
+        V1_100_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.vac_count_P];
+
+    elseif j_comp == "VB"    % Infected
+        plot(ts, Pars.vac_count_B, 's', 'Color', '#d63031', 'MarkerSize', 10, ...
+         'MarkerFaceColor','#d63031',    'DisplayName', 'Serology data')
+        legend({'Reported cases(local symptomatic)'},'Location','northwest', 'fontsize', 18)
+        legend boxoff
+        yl=ylabel('Infected individuals','fontweight','bold');
+        pos=get(yl,'Pos');
+        set(yl,'Pos',[ylabel_xpos pos(2) pos(3)]);
+        hold on 
+        plot(ts, diffB_100, 's', 'Color', '#0984e3', 'MarkerSize', 10, ...
+    'MarkerFaceColor','#0984e3', 'DisplayName', 'Serology data')       
+        VB_100_CI = [mean_sampled_fits' ci_higher_sampled_fits' ci_lower_sampled_fits' Pars.vac_count_B];
+
+    end
+    ylim([0, Inf])
+    xlim([Pars.t0, Pars.tf])
+    
+    
+    box on
+end
+
+
+
+
+
